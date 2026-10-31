@@ -2,6 +2,7 @@ from typing import Annotated
 from fastapi import Depends, FastAPI, HTTPException
 from app.security import authenticate_device
 from app.schemas import LowPerformanceBatch, DailyMetrics
+from app.database import save_daily_metrics
 
 app = FastAPI(
     title="CloudSys Group 09 API",
@@ -44,9 +45,11 @@ def ingest_daily_metrics(
             detail="Ce token ne permet pas d'envoyer les données de ce compteur",
         )
 
+    save_daily_metrics(metrics)
+
     return {
-        "status": "validated",
-        "stored": False,
+        "status": "stored",
+        "stored": True,
         "device_id": metrics.device_id,
         "day": metrics.day.isoformat(),
     }
