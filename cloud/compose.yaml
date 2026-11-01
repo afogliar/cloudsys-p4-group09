@@ -10,6 +10,26 @@ services:
       postgres:
         condition: service_healthy
 
+  models-init:
+    profiles: ["tools"]
+    build:
+      context: ./api
+    env_file:
+      - .env
+    command: ["python", "-m", "app.models", "--kit-root", "/kit"]
+    volumes:
+      - type: bind
+        source: ../../cloudsys-p4-students-main/kit
+        target: /kit
+        read_only: true
+        bind:
+          create_host_path: false
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_started
+
   postgres:
     image: postgres:17
     environment:

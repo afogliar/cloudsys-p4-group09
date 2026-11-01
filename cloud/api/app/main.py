@@ -1,5 +1,5 @@
-from typing import Annotated
-from fastapi import Depends, FastAPI, HTTPException, Response
+from typing import Annotated, Literal
+from fastapi import Depends, FastAPI, HTTPException, Response, Path
 from botocore.exceptions import BotoCoreError, ClientError
 import psycopg
 from app.security import authenticate_device
@@ -7,11 +7,57 @@ from app.schemas import LowPerformanceBatch, DailyMetrics
 from app.database import (
     BatchConflictError, save_daily_metrics, save_low_performance_batch,
 )
+from app.models import ModelNotFoundError, ModelIntegrityError, model_metadata, read_model
 
 app = FastAPI(
     title="CloudSys Group 09 API",
     version="0.2.0",
 )
+
+
+def model_error(exc: Exception) -> HTTPException:
+    if isinstance(exc, ModelNotFoundError):
+        return HTTPException(status_code=404, detail="Modèle publié introuvable")
+    return HTTPException(
+        status_code=503, detail="Modèle temporairement indisponible",
+        headers={"Retry-After": "5"},
+    )
+
+
+# Static /latest must precede the version path.
+@app.get("/v1/models/{category}/latest")
+def latest_model(
+    category: Literal["cons", "pros"],
+    device_id: Annotated[str, Depends(authenticate_device)],
+):
+    try:
+        metadata = model_metadata(category)
+    except (ModelNotFoundError, psycopg.Error) as exc:
+        raise model_error(exc) from exc
+    return {key: metadata[key] for key in ("category", "version", "sha256", "size_bytes")}
+
+
+@app.get("/v1/models/{category}/{version}")
+def download_model(
+    category: Literal["cons", "pros"],
+    version: Annotated[int, Path(ge=1)],
+    device_id: Annotated[str, Depends(authenticate_device)],
+):
+    try:
+        metadata = model_metadata(category, version)
+        content = read_model(metadata)
+    except (ModelNotFoundError, ModelIntegrityError, psycopg.Error,
+            BotoCoreError, ClientError) as exc:
+        raise model_error(exc) from exc
+    return Response(
+        content=content, media_type="text/plain",
+        headers={
+            "Content-Disposition": f'attachment; filename="model_{category}_v{version:04d}.txt"',
+            "ETag": f'"{metadata["sha256"]}"',
+            "X-Model-SHA256": metadata["sha256"],
+            "X-Model-Version": str(version),
+        },
+    )
 
 
 @app.get("/v1/health")
