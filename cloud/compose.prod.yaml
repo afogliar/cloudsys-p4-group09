@@ -1,0 +1,31 @@
+services:
+  api:
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2.8
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      API_HOSTNAME: ${API_HOSTNAME:?API_HOSTNAME manquant}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - api
+    restart: unless-stopped
+
+  postgres:
+    volumes:
+      - /srv/p4/postgres:/var/lib/postgresql/data
+
+  minio:
+    volumes:
+      - /srv/p4/minio:/data
+
+volumes:
+  caddy_data:
+  caddy_config:
