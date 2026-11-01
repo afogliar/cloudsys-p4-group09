@@ -1,0 +1,45 @@
+# Isolated, disposable test services. Does not read the development .env.
+services:
+  postgres-test:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: p4_batch_tests
+      POSTGRES_USER: batch_test
+      POSTGRES_PASSWORD: test-only-password
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U batch_test -d p4_batch_tests"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+  minio-test:
+    image: p4-group09-minio:2025-10-15
+    command: ["server", "/data"]
+    environment:
+      MINIO_ROOT_USER: batch-test-admin
+      MINIO_ROOT_PASSWORD: test-only-password
+    tmpfs:
+      - /data
+
+  batch-tests:
+    build:
+      context: ./api
+      dockerfile: Dockerfile.tests
+    environment:
+      DEVICE_TOKENS_JSON: '{"27afc1ed":"tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt"}'
+      POSTGRES_HOST: postgres-test
+      POSTGRES_DB: p4_batch_tests
+      POSTGRES_USER: batch_test
+      POSTGRES_PASSWORD: test-only-password
+      MINIO_ROOT_USER: batch-test-admin
+      MINIO_ROOT_PASSWORD: test-only-password
+      S3_ENDPOINT_URL: http://minio-test:9000
+      S3_BUCKET: p4-batch-tests
+      RUN_BATCH_INTEGRATION: "1"
+    depends_on:
+      postgres-test:
+        condition: service_healthy
+      minio-test:
+        condition: service_started

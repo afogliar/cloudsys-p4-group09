@@ -45,5 +45,15 @@ def initialize_storage():
     print(f"Bucket accessible : {bucket}")
 
 
+def put_batch_json(object_key: str, content: bytes):
+    """Write to a deterministic key; an identical retry replaces the same object."""
+    create_s3_client().put_object(
+        Bucket=get_bucket_name(),
+        Key=object_key,
+        Body=content,
+        ContentType="application/json",
+    )
+
+
 if __name__ == "__main__":
     initialize_storage()
