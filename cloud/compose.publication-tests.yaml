@@ -1,0 +1,74 @@
+services:
+  postgres-publication-test:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: p4_publication_tests
+      POSTGRES_USER: publication_test
+      POSTGRES_PASSWORD: test-only-password
+    volumes:
+      - publication_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U publication_test -d p4_publication_tests"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+  minio-publication-test:
+    image: p4-group09-minio:2025-10-15
+    command: ["server", "/data"]
+    environment:
+      MINIO_ROOT_USER: publication-admin
+      MINIO_ROOT_PASSWORD: test-only-password
+    volumes:
+      - publication_s3:/data
+  mlflow-publication-test:
+    build:
+      context: ./mlflow
+    environment:
+      POSTGRES_HOST: postgres-publication-test
+      POSTGRES_DB: p4_publication_tests
+      POSTGRES_USER: publication_test
+      POSTGRES_PASSWORD: test-only-password
+      MLFLOW_DATABASE: p4_mlflow_publication_tests
+      MINIO_ROOT_USER: publication-admin
+      MINIO_ROOT_PASSWORD: test-only-password
+      S3_ENDPOINT_URL: http://minio-publication-test:9000
+      S3_BUCKET: p4-publication-tests
+      MLFLOW_ALLOWED_HOSTS: "mlflow-publication-test:*,localhost:*,127.0.0.1:*"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5000/health', timeout=5)"]
+      interval: 3s
+      timeout: 10s
+      retries: 60
+      start_period: 30s
+    depends_on:
+      postgres-publication-test:
+        condition: service_healthy
+      minio-publication-test:
+        condition: service_started
+  publication-tests:
+    build:
+      context: .
+      dockerfile: trainer/Dockerfile
+      target: tests
+      additional_contexts:
+        materials: ../../cloudsys-p4-students-main
+    command: ["python", "-m", "pytest", "-q", "/app/trainer/tests/test_publication.py"]
+    environment:
+      DEVICE_TOKENS_JSON: '{"27afc1ed":"tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt"}'
+      POSTGRES_HOST: postgres-publication-test
+      POSTGRES_DB: p4_publication_tests
+      POSTGRES_USER: publication_test
+      POSTGRES_PASSWORD: test-only-password
+      MINIO_ROOT_USER: publication-admin
+      MINIO_ROOT_PASSWORD: test-only-password
+      S3_ENDPOINT_URL: http://minio-publication-test:9000
+      S3_BUCKET: p4-publication-tests
+      MLFLOW_TRACKING_URI: http://mlflow-publication-test:5000
+      MLFLOW_HTTP_REQUEST_TIMEOUT: "5"
+      MLFLOW_HTTP_REQUEST_MAX_RETRIES: "0"
+    depends_on:
+      mlflow-publication-test:
+        condition: service_healthy
+volumes:
+  publication_pg:
+  publication_s3:

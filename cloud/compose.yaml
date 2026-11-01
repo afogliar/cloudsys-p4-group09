@@ -10,6 +10,53 @@ services:
       postgres:
         condition: service_healthy
 
+  trainer:
+    profiles: ["training"]
+    build:
+      context: .
+      dockerfile: trainer/Dockerfile
+      target: runtime
+      additional_contexts:
+        materials: ../../cloudsys-p4-students-main
+    env_file:
+      - .env
+    environment:
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      MLFLOW_HTTP_REQUEST_TIMEOUT: "15"
+      MLFLOW_HTTP_REQUEST_MAX_RETRIES: "1"
+    volumes:
+      - trainer_state:/state
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_started
+      mlflow:
+        condition: service_healthy
+
+  mlflow:
+    build:
+      context: ./mlflow
+    env_file:
+      - .env
+    environment:
+      MLFLOW_ALLOWED_HOSTS: "mlflow:*,localhost:*,127.0.0.1:*"
+    ports:
+      - "127.0.0.1:5000:5000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5000/health', timeout=5)"]
+      interval: 5s
+      timeout: 10s
+      retries: 60
+      start_period: 30s
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_started
+
   models-init:
     profiles: ["tools"]
     build:
@@ -66,3 +113,4 @@ services:
 volumes:
   postgres_data:
   minio_data:
+  trainer_state:

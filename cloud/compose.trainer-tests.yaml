@@ -1,0 +1,46 @@
+services:
+  postgres-trainer-test:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: p4_trainer_tests
+      POSTGRES_USER: trainer_test
+      POSTGRES_PASSWORD: test-only-password
+    volumes:
+      - trainer_test_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U trainer_test -d p4_trainer_tests"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+  minio-trainer-test:
+    image: p4-group09-minio:2025-10-15
+    command: ["server", "/data"]
+    environment:
+      MINIO_ROOT_USER: trainer-test-admin
+      MINIO_ROOT_PASSWORD: test-only-password
+    volumes:
+      - trainer_test_s3:/data
+  trainer-tests:
+    build:
+      context: .
+      dockerfile: trainer/Dockerfile
+      target: tests
+      additional_contexts:
+        materials: ../../cloudsys-p4-students-main
+    environment:
+      POSTGRES_HOST: postgres-trainer-test
+      POSTGRES_DB: p4_trainer_tests
+      POSTGRES_USER: trainer_test
+      POSTGRES_PASSWORD: test-only-password
+      MINIO_ROOT_USER: trainer-test-admin
+      MINIO_ROOT_PASSWORD: test-only-password
+      S3_ENDPOINT_URL: http://minio-trainer-test:9000
+      S3_BUCKET: p4-trainer-tests
+    depends_on:
+      postgres-trainer-test:
+        condition: service_healthy
+      minio-trainer-test:
+        condition: service_started
+volumes:
+  trainer_test_pg:
+  trainer_test_s3:
