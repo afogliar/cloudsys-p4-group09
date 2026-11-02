@@ -1,0 +1,9 @@
+{$API_HOSTNAME} {
+	# Ingestion/model API: the only public application surface.
+	handle /v1/* {
+		reverse_proxy api:8000
+	}
+	handle {
+		respond "Not Found" 404
+	}
+}

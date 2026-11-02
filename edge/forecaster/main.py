@@ -191,6 +191,14 @@ state_path.parent.mkdir(parents=True, exist_ok=True)
 
 last_evaluated_versions = {}
 
+# Version 1 is published by the cloud bootstrap. Download it before the first
+# midnight forecast; otherwise the first call to predict_day would reference a
+# cache path that does not exist yet.
+for device in device_ids:
+    category = meter_categories[device]
+    if download_model(category, 1, device) is None:
+        print(f"{device} : modèle initial indisponible; nouvelle tentative au démarrage")
+
 def save_state():
     state = {
         "histories": {

@@ -139,6 +139,14 @@ class DailyMetrics(BaseModel):
     mae_persistence_kw: NonNegativeFinite | None
     low_performance: bool | None
 
+    # Local model-adoption decision, reported after a cloud release. All five
+    # fields are optional so older edge payloads remain valid.
+    candidate_model_version: Annotated[int, Field(strict=True, ge=1)] | None = None
+    model_decision: Literal["adopted", "rejected", "not_evaluated"] | None = None
+    old_model_mae_kw: NonNegativeFinite | None = None
+    new_model_mae_kw: NonNegativeFinite | None = None
+    model_evaluated_days: Annotated[int, Field(strict=True, ge=0)] | None = None
+
     sent_at: AwareDatetime
 
     @model_validator(mode="after")

@@ -6,18 +6,95 @@ services:
       - .env
     ports:
       - "127.0.0.1:8000:8000"
+    healthcheck:
+      # /openapi.json is unauthenticated and proves uvicorn + the ASGI app
+      # are serving (the /v1/* routes themselves require a device token).
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/openapi.json', timeout=5)"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      db-init:
+        condition: service_completed_successfully
+      models-init:
+        condition: service_completed_successfully
+      data-init:
+        condition: service_completed_successfully
+
+  # One-shot initialisation chain: db-init -> models-init -> data-init.
+  # `docker compose up -d` yields a fully initialised system with no manual
+  # step; each job exits 0 and is skipped on subsequent invocations unless
+  # its configuration changes.
+  db-init:
+    build:
+      context: ./api
+    env_file:
+      - .env
+    command:
+      - python
+      - -c
+      - "from app.database import initialize_database; from app.models import initialize_model_tables; initialize_database(); initialize_model_tables(); print('db-init: PostgreSQL tables ready')"
     depends_on:
       postgres:
         condition: service_healthy
 
+  models-init:
+    build:
+      context: ./api
+    env_file:
+      - .env
+    command: ["python", "-m", "app.models", "--kit-root", "/kit"]
+    volumes:
+      - type: bind
+        # Kit source overridable for a standalone cloud VM (P4_KIT_DIR in
+        # .env); the default keeps the sibling-checkout dev layout working.
+        source: ${P4_KIT_DIR:-../../cloudsys-p4-students-main/kit}
+        target: /kit
+        read_only: true
+        bind:
+          create_host_path: false
+    depends_on:
+      db-init:
+        condition: service_completed_successfully
+      minio:
+        condition: service_started
+
+  data-init:
+    build:
+      context: ./api
+    env_file:
+      - .env
+    command: ["python", "-m", "app.data_init", "--data-dir", "/data", "--kit-root", "/kit"]
+    volumes:
+      - type: bind
+        source: ${P4_DATA_DIR:-../../cloudsys-p4-students-main/data}
+        target: /data
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${P4_KIT_DIR:-../../cloudsys-p4-students-main/kit}
+        target: /kit
+        read_only: true
+        bind:
+          create_host_path: false
+    depends_on:
+      models-init:
+        condition: service_completed_successfully
+
   trainer:
-    profiles: ["training"]
     build:
       context: .
       dockerfile: trainer/Dockerfile
       target: runtime
       additional_contexts:
-        materials: ../../cloudsys-p4-students-main
+        # Course repo checkout supplying kit/ and data/ baked into the image.
+        # Override P4_COURSE_DIR on a standalone cloud VM (see .env.example).
+        materials: ${P4_COURSE_DIR:-../../cloudsys-p4-students-main}
     env_file:
       - .env
     environment:
@@ -34,6 +111,12 @@ services:
         condition: service_started
       mlflow:
         condition: service_healthy
+      db-init:
+        condition: service_completed_successfully
+      models-init:
+        condition: service_completed_successfully
+      data-init:
+        condition: service_completed_successfully
 
   mlflow:
     build:
@@ -51,26 +134,6 @@ services:
       retries: 60
       start_period: 30s
     restart: unless-stopped
-    depends_on:
-      postgres:
-        condition: service_healthy
-      minio:
-        condition: service_started
-
-  models-init:
-    profiles: ["tools"]
-    build:
-      context: ./api
-    env_file:
-      - .env
-    command: ["python", "-m", "app.models", "--kit-root", "/kit"]
-    volumes:
-      - type: bind
-        source: ../../cloudsys-p4-students-main/kit
-        target: /kit
-        read_only: true
-        bind:
-          create_host_path: false
     depends_on:
       postgres:
         condition: service_healthy
