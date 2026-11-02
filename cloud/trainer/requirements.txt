@@ -1,0 +1,5 @@
+# Kit constraints are also applied by the Dockerfile. No ML upgrades permitted.
+boto3
+psycopg[binary]
+pydantic>=2,<3
+mlflow-skinny==3.16.1

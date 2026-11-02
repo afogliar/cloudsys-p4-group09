@@ -1,0 +1,54 @@
+# No cleanup commands or destructive fixtures: resources remain for review.
+services:
+  postgres-model-test:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: p4_model_tests
+      POSTGRES_USER: model_test
+      POSTGRES_PASSWORD: test-only-password
+    volumes:
+      - model_test_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U model_test -d p4_model_tests"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+  minio-model-test:
+    image: p4-group09-minio:2025-10-15
+    command: ["server", "/data"]
+    environment:
+      MINIO_ROOT_USER: model-test-admin
+      MINIO_ROOT_PASSWORD: test-only-password
+    volumes:
+      - model_test_s3:/data
+  model-tests:
+    build:
+      context: ./api
+      dockerfile: Dockerfile.tests
+    command: ["python", "-m", "pytest", "-q", "tests/test_models.py", "tests/test_lowperf_http.py"]
+    environment:
+      DEVICE_TOKENS_JSON: '{"27afc1ed":"tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt"}'
+      POSTGRES_HOST: postgres-model-test
+      POSTGRES_DB: p4_model_tests
+      POSTGRES_USER: model_test
+      POSTGRES_PASSWORD: test-only-password
+      MINIO_ROOT_USER: model-test-admin
+      MINIO_ROOT_PASSWORD: test-only-password
+      S3_ENDPOINT_URL: http://minio-model-test:9000
+      S3_BUCKET: p4-model-tests
+      RUN_MODEL_INTEGRATION: "1"
+    volumes:
+      - type: bind
+        source: ../../cloudsys-p4-students-main/kit
+        target: /kit
+        read_only: true
+        bind:
+          create_host_path: false
+    depends_on:
+      postgres-model-test:
+        condition: service_healthy
+      minio-model-test:
+        condition: service_started
+volumes:
+  model_test_pg:
+  model_test_s3:
