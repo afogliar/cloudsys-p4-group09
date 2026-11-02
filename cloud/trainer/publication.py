@@ -14,6 +14,7 @@ from psycopg.types.json import Jsonb
 from app.database import connect
 from app.models import model_metadata, read_model
 from app.storage import create_s3_client, get_bucket_name
+from trainer.rollout import sync_rollouts
 
 
 class PublicationConflictError(Exception):
@@ -26,9 +27,12 @@ def initialize_publication():
             "mlflow_run_id TEXT", "mlflow_model_version TEXT",
             "publication_status TEXT NOT NULL DEFAULT 'pending'",
             "publication_error_type TEXT", "publication_finished_at TIMESTAMPTZ",
+            "nuvla_rollout_status TEXT", "nuvla_rollout_detail TEXT",
+            "nuvla_rollout_at TIMESTAMPTZ",
         ):
             conn.execute("ALTER TABLE training_runs ADD COLUMN IF NOT EXISTS " + definition)
-        for definition in ("mlflow_run_id TEXT", "mlflow_model_version TEXT", "lineage JSONB"):
+        for definition in ("mlflow_run_id TEXT", "mlflow_model_version TEXT", "lineage JSONB",
+                           "nuvla_rollout_status TEXT"):
             conn.execute("ALTER TABLE model_versions ADD COLUMN IF NOT EXISTS " + definition)
 
 
@@ -220,6 +224,20 @@ def publish_completed(client, run):
         if accepted:
             conn.execute("UPDATE model_releases SET version=%s WHERE category=%s",
                          (run["candidate_version"], run["category"]))
+            # The accepted version now owes exactly one Nuvla rollout request,
+            # performed by trainer.rollout once this transaction commits. A
+            # terminal outcome (updated/skipped) is never reset by a re-publish.
+            conn.execute("""
+                UPDATE training_runs SET nuvla_rollout_status='pending',
+                    nuvla_rollout_detail=NULL
+                WHERE run_id=%s AND (nuvla_rollout_status IS NULL OR
+                    nuvla_rollout_status NOT IN ('updated', 'skipped'))
+            """, (run["run_id"],))
+            conn.execute("""
+                UPDATE model_versions SET nuvla_rollout_status='pending'
+                WHERE category=%s AND version=%s AND (nuvla_rollout_status IS NULL OR
+                    nuvla_rollout_status NOT IN ('updated', 'skipped'))
+            """, (run["category"], run["candidate_version"]))
     if accepted:
         client.set_registered_model_alias("p4-" + run["category"], "released", str(mlflow_version))
     client.set_tag(mlflow_id, "publication", decision)
@@ -274,4 +292,11 @@ def sync_category_locked(category):
                 conn.execute("UPDATE training_runs SET publication_error_type=%s WHERE run_id=%s",
                              (type(exc).__name__, run["run_id"]))
             raise
+    # Nuvla rollout of the released version, on every pass (fresh acceptions
+    # and retries). It records its own outcome and must never fail publication.
+    try:
+        sync_rollouts(category)
+    except Exception as exc:
+        print(json.dumps({"event": "nuvla_rollout", "category": category,
+                          "status": "error", "detail": type(exc).__name__}), flush=True)
     return len(runs)

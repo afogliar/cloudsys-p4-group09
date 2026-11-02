@@ -1,0 +1,55 @@
+services:
+  mqtt:
+    image: eclipse-mosquitto:2
+    command:
+      - sh
+      - -c
+      - echo 'listener 1883 0.0.0.0' > /tmp/mosquitto.conf; echo 'allow_anonymous true' >> /tmp/mosquitto.conf; exec mosquitto -c /tmp/mosquitto.conf -v
+    restart: unless-stopped
+
+  replayer:
+    image: ${P4_EDGE_IMAGE:-p4-group09-edge:2026-11-02}
+    command: ["/opt/app/edge/replayer/main.py"]
+    environment:
+      DEVICE_IDS: $DEVICE_IDS
+      REPLAY_START: $REPLAY_START
+      REPLAY_END: ${REPLAY_END:-2026-08-17}
+      REPLAY_SPEED: ${REPLAY_SPEED:-1440}
+      MQTT_HOST: ${MQTT_HOST:-mqtt}
+      MQTT_PORT: ${MQTT_PORT:-1883}
+    restart: "no"
+    depends_on: [mqtt]
+
+  forecaster:
+    image: ${P4_EDGE_IMAGE:-p4-group09-edge:2026-11-02}
+    command: ["/opt/app/edge/forecaster/main.py"]
+    environment:
+      DEVICE_IDS: $DEVICE_IDS
+      API_URL: $API_URL
+      DEVICE_TOKENS_JSON: $DEVICE_TOKENS_JSON
+      MODEL_VERSION_CONS: ${MODEL_VERSION_CONS:-1}
+      MODEL_VERSION_PROS: ${MODEL_VERSION_PROS:-1}
+      MQTT_HOST: ${MQTT_HOST:-mqtt}
+      MQTT_PORT: ${MQTT_PORT:-1883}
+      REPLAY_END: ${REPLAY_END:-2026-08-17}
+    volumes:
+      - edge_state:/state
+    restart: unless-stopped
+    depends_on: [mqtt]
+
+  monitor:
+    image: ${P4_EDGE_IMAGE:-p4-group09-edge:2026-11-02}
+    command: ["/opt/app/edge/monitor/main.py"]
+    environment:
+      DEVICE_IDS: $DEVICE_IDS
+      API_URL: $API_URL
+      DEVICE_TOKENS_JSON: $DEVICE_TOKENS_JSON
+      MQTT_HOST: ${MQTT_HOST:-mqtt}
+      MQTT_PORT: ${MQTT_PORT:-1883}
+    volumes:
+      - edge_state:/state
+    restart: unless-stopped
+    depends_on: [mqtt]
+
+volumes:
+  edge_state:

@@ -1,7 +1,11 @@
+# Production overlay for the course cloud VM: TLS termination and persistent
+# host binds. MLflow stays on its loopback-only binding from compose.yaml.
+# Usage (from the repository root):
+#   docker compose -f cloud/compose.yaml -f cloud/compose.prod.yaml up -d --build
+# Only Caddy publishes public ports (80/443). The api/minio/mlflow loopback
+# bindings inherited from compose.yaml stay 127.0.0.1-only (SSH-tunnel admin
+# access); PostgreSQL and the object store are never reachable off-host.
 services:
-  api:
-    restart: unless-stopped
-
   caddy:
     image: caddy:2.8
     ports:
@@ -15,15 +19,19 @@ services:
       - caddy_data:/data
       - caddy_config:/config
     depends_on:
-      - api
+      api:
+        condition: service_healthy
     restart: unless-stopped
 
   postgres:
     volumes:
+      # Replaces the postgres_data named volume at the same container target;
+      # data lives on the persistent attached disk mounted at /srv/p4.
       - /srv/p4/postgres:/var/lib/postgresql/data
 
   minio:
     volumes:
+      # Replaces the minio_data named volume at the same container target.
       - /srv/p4/minio:/data
 
 volumes:

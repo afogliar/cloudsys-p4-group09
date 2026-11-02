@@ -273,7 +273,7 @@ def on_message(client, userdata, msg):
 
     if msg.topic.endswith("/readings"):
         device = payload["device_id"]
-        timestamp = payload["timestamp"].isoformat()
+        timestamp = payload["timestamp"]
 
         readings[device][timestamp] = {
             "ap_kw": payload["ap_kw"],
